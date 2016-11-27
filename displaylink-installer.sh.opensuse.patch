@@ -1,24 +1,16 @@
---- displaylink-installer.sh.orig	2016-05-10 12:13:27.000000000 +0200
-+++ displaylink-installer.sh	2016-05-17 10:48:23.061600609 +0200
-@@ -10,7 +10,15 @@
- 
+--- displaylink-installer.sh.orig	2016-10-05 04:23:53.000000000 -0500
++++ displaylink-installer.sh	2016-11-27 19:19:08.536180864 -0600
+@@ -11,7 +11,7 @@
  add_udev_rule()
  {
--  echo 'ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="17e9", ATTR{bNumInterfaces}=="*5", GROUP="plugdev", MODE="0660"' > /etc/udev/rules.d/99-displaylink.rules
-+  local UDevRules='ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="17e9", ATTR{bNumInterfaces}=="*5", GROUP="plugdev", MODE="0660"'
-+  if which lsb_release >/dev/null; then
-+    local R=$(lsb_release -d -s)
-+    local R=${R#\"}
-+    if [ -z "${R##openSUSE Tumbleweed*}" ]; then
-+      local UDevRules='ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="17e9", ATTR{bNumInterfaces}=="*5", GROUP="users", MODE="0660"'
-+    fi
-+  fi
-+  echo ${UDevRules} > /etc/udev/rules.d/99-displaylink.rules
-   chmod 0644 /etc/udev/rules.d/99-displaylink.rules
+   echo "Adding udev rule for DisplayLink DL-3xxx/5xxx devices"
+-  create_udev_rules_file /etc/udev/rules.d/99-displaylink.rules
++  create_udev_rules_file /etc/udev/rules.d/99-displaylink.rules $displaylink_bootstrap_script
+   udevadm control -R
+   udevadm trigger
  }
- 
-@@ -96,9 +104,25 @@
-   chmod 0644 /etc/init/displaylink.conf
+@@ -109,9 +109,25 @@
+   chmod 0644 /etc/init/dlm.conf
  }
  
 +get_systemd_service_file()
@@ -27,39 +19,40 @@
 +    local R=$(lsb_release -d -s)
 +    local R=${R#\"}
 +    if [ -z "${R##openSUSE Tumbleweed*}" ]; then
-+      echo "/etc/systemd/system/displaylink.service"
++      echo "/etc/systemd/system/dlm.service"
 +      return
 +    fi
 +  fi
 +
-+  echo "/lib/systemd/system/displaylink.service"
++  echo "/lib/systemd/system/dlm.service"
 +  return
 +}
 +
  add_systemd_service()
  {
--  cat > /lib/systemd/system/displaylink.service <<'EOF'
+-  cat > /lib/systemd/system/dlm.service <<'EOF'
 +  local ServiceFile=$(get_systemd_service_file)
 +  cat > ${ServiceFile} <<'EOF'
  [Unit]
  Description=DisplayLink Manager Service
  After=display-manager.service
-@@ -116,7 +140,7 @@
+@@ -126,7 +142,8 @@
  
  EOF
  
--  chmod 0644 /lib/systemd/system/displaylink.service
+-  chmod 0644 /lib/systemd/system/dlm.service
 +  chmod 0644 ${ServiceFile}
-   systemctl enable displaylink.service
++  systemctl enable dlm.service
  }
  
-@@ -127,8 +151,24 @@
+ remove_upstart_script()
+@@ -136,8 +153,24 @@
  
  remove_systemd_service()
  {
 +  local ServiceFile=$(get_systemd_service_file)
-   systemctl disable displaylink.service
--  rm -f /lib/systemd/system/displaylink.service
+   systemctl disable dlm.service
+-  rm -f /lib/systemd/system/dlm.service
 +  rm -f ${ServiceFile}
 +}
 +
@@ -79,12 +72,12 @@
  }
  
  add_pm_script()
-@@ -197,14 +237,14 @@
-     ln -s $COREDIR/displaylink.sh /etc/pm/sleep.d/displaylink.sh
+@@ -208,14 +241,14 @@
+     ln -sf $COREDIR/suspend.sh /etc/pm/sleep.d/displaylink.sh
    elif [ "$1" = "systemd" ]
    then
--    ln -s $COREDIR/displaylink.sh /lib/systemd/system-sleep/displaylink.sh
-+    ln -s $COREDIR/displaylink.sh $(get_pm_script)
+-    ln -sf $COREDIR/suspend.sh /lib/systemd/system-sleep/displaylink.sh
++    ln -sf $COREDIR/suspend.sh $(get_pm_script)
    fi
  }
  
@@ -96,7 +89,7 @@
  }
  
  cleanup()
-@@ -342,7 +382,17 @@
+@@ -354,7 +387,17 @@
    version_lt "$KVER" "$KVER_MIN" && missing_requirement "Kernel version $KVER is too old. At least $KVER_MIN is required"
  
    # Linux headers
@@ -115,41 +108,7 @@
  }
  
  usage()
-@@ -357,19 +407,21 @@
- 
- detect_init_daemon()
- {
--    INIT=$(readlink /proc/1/exe)
--    if [ "$INIT" == "/sbin/init" ]; then
--        INIT=$(/sbin/init --version)
--    fi
--
--    [ -z "${INIT##*upstart*}" ] && SYSTEMINITDAEMON="upstart"
--    [ -z "${INIT##*systemd*}" ] && SYSTEMINITDAEMON="systemd"
--
-     if [ -z "$SYSTEMINITDAEMON" ]; then
--        echo "ERROR: the installer script is unable to find out how to start DisplayLinkManager service automatically on your system." >&2
--        echo "Please set an environment variable SYSTEMINITDAEMON to 'upstart' or 'systemd' before running the installation script to force one of the options." >&2
--        echo "Installation terminated." >&2
--        exit 1
-+        INIT=$(readlink /proc/1/exe)
-+        if [ "$INIT" == "/sbin/init" ]; then
-+            INIT=$(/sbin/init --version)
-+        fi
-+
-+        [ -z "${INIT##*upstart*}" ] && SYSTEMINITDAEMON="upstart"
-+        [ -z "${INIT##*systemd*}" ] && SYSTEMINITDAEMON="systemd"
-+
-+        if [ -z "$SYSTEMINITDAEMON" ]; then
-+            echo "ERROR: the installer script is unable to find out how to start DisplayLinkManager service automatically on your system." >&2
-+            echo "Please set an environment variable SYSTEMINITDAEMON to 'upstart' or 'systemd' before running the installation script to force one of the options." >&2
-+            echo "Installation terminated." >&2
-+            exit 1
-+        fi
-     fi
- }
- 
-@@ -377,10 +429,14 @@
+@@ -389,10 +432,14 @@
  {
    if which lsb_release >/dev/null; then
      local R=$(lsb_release -d -s)
